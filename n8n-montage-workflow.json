@@ -1,0 +1,71 @@
+{
+  "name": "Montage Video FFmpeg",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "montage-video",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [250, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "functionCode": "// Préparer le montage vidéo\nconst videos = $input.all()[0].json.video_urls || [];\nconst tempDir = `/tmp/montage_${Date.now()}`;\n\n// Limites de sécurité\nconst maxVideos = 10;\nconst videoList = videos.slice(0, maxVideos);\n\n// Créer les commandes\nconst downloadCommands = videoList.map((url, i) => \n  `wget -q -O ${tempDir}/video_${i}.mp4 '${url}'`\n).join(' && ');\n\nconst ffmpegCommand = `\n  mkdir -p ${tempDir} && \n  ${downloadCommands} && \n  ls ${tempDir}/*.mp4 | sed 's/^/file /' > ${tempDir}/list.txt && \n  ffmpeg -f concat -safe 0 -i ${tempDir}/list.txt -c copy ${tempDir}/output.mp4 -y\n`;\n\nreturn [{\n  json: {\n    command: ffmpegCommand,\n    outputFile: `${tempDir}/output.mp4`,\n    tempDir: tempDir,\n    videoCount: videoList.length\n  }\n}];"
+      },
+      "id": "function",
+      "name": "Préparer Montage",
+      "type": "n8n-nodes-base.function",
+      "position": [450, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "command": "={{ $json.command }}"
+      },
+      "id": "execute",
+      "name": "Execute Command",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [650, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.outputFile }}"
+      },
+      "id": "readFile",
+      "name": "Read Binary File",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "position": [850, 300],
+      "typeVersion": 1
+    },
+    {
+      "parameters": {
+        "command": "rm -rf {{ $json.tempDir }}"
+      },
+      "id": "cleanup",
+      "name": "Cleanup",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [1050, 300],
+      "typeVersion": 1
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Préparer Montage", "type": "main", "index": 0}]]
+    },
+    "Préparer Montage": {
+      "main": [[{"node": "Execute Command", "type": "main", "index": 0}]]
+    },
+    "Execute Command": {
+      "main": [[{"node": "Read Binary File", "type": "main", "index": 0}]]
+    },
+    "Read Binary File": {
+      "main": [[{"node": "Cleanup", "type": "main", "index": 0}]]
+    }
+  }
+}
