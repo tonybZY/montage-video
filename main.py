@@ -1,191 +1,137 @@
-# main.py - Montage Video API
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import requests
 import os
-from typing import List, Dict
-import time
+import subprocess
+import tempfile
+import uuid
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Configuration
-N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL', 'https://n8n.srv840088.hstgr.cloud/workflow/...')
-API_KEY = os.getenv('API_KEY', 'your-api-key-here')
+# Dossier pour stocker les vidéos temporaires
+UPLOAD_FOLDER = 'temp_videos'
+OUTPUT_FOLDER = 'output_videos'
+
+# Créer les dossiers s'ils n'existent pas
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 @app.route('/')
 def home():
     return jsonify({
-        "service": "Montage Video API",
-        "status": "active",
+        "message": "API de montage vidéo",
         "endpoints": {
-            "/video-urls": "POST - Additionner les URLs vidéo pour montage",
-            "/notify-n8n": "POST - Envoyer une notification à n8n",
-            "/montage-video": "POST - Traiter et monter les vidéos via n8n"
+            "/montage-video": "POST - Assembler plusieurs vidéos en une seule"
         }
     })
 
-@app.route('/video-urls', methods=['POST'])
-def handle_video_urls():
-    """Endpoint pour recevoir et additionner les URLs vidéo pour montage"""
-    try:
-        # Vérifier la clé API
-        if request.headers.get('X-API-Key') != API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
-        
-        data = request.json
-        video_urls = data.get('video_urls', [])
-        
-        if isinstance(video_urls, str):
-            video_urls = [video_urls]
-        
-        # Préparer la liste des vidéos pour le montage
-        montage_sequence = []
-        
-        # Additionner chaque URL vidéo dans l'ordre
-        for idx, url in enumerate(video_urls):
-            video_info = {
-                "position": idx + 1,
-                "url": url,
-                "download_url": url,
-                "timestamp": time.time(),
-                "status": "ready_for_montage"
-            }
-            montage_sequence.append(video_info)
-            
-            # Petit délai entre chaque vidéo pour éviter la surcharge
-            if idx < len(video_urls) - 1:
-                time.sleep(0.2)
-        
-        return jsonify({
-            "success": True,
-            "total_videos": len(montage_sequence),
-            "montage_sequence": montage_sequence,
-            "message": f"{len(montage_sequence)} vidéos prêtes pour le montage"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/notify-n8n', methods=['POST'])
-def notify_n8n():
-    """Envoyer une notification à n8n"""
-    try:
-        # Vérifier la clé API
-        if request.headers.get('X-API-Key') != API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
-        
-        data = request.json
-        
-        # Préparer les données pour n8n
-        n8n_payload = {
-            "timestamp": time.time(),
-            "source": "montage-video-api",
-            "data": data
-        }
-        
-        # Envoyer à n8n
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": API_KEY
-        }
-        
-        response = requests.post(
-            N8N_WEBHOOK_URL,
-            json=n8n_payload,
-            headers=headers,
-            timeout=30
-        )
-        
-        return jsonify({
-            "success": True,
-            "n8n_response": response.status_code,
-            "message": "Notification sent to n8n"
-        })
-        
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": f"Failed to notify n8n: {str(e)}"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 @app.route('/montage-video', methods=['POST'])
 def montage_video():
-    """Traiter les URLs vidéo et déclencher le montage via n8n"""
     try:
         # Vérifier la clé API
-        if request.headers.get('X-API-Key') != API_KEY:
-            return jsonify({"error": "Unauthorized"}), 401
+        api_key = request.headers.get('X-API-Key')
+        if api_key != 'pk_live_mega_converter_montage_2025':
+            return jsonify({"error": "Invalid API key"}), 401
         
-        data = request.json
-        video_urls = data.get('video_urls', [])
-        title = data.get('title', 'Montage Video')
-        output_format = data.get('output_format', 'mp4')
+        # Récupérer les données du body
+        data = request.get_json()
         
-        if isinstance(video_urls, str):
-            video_urls = [video_urls]
+        # Vérifier si on a des URLs de vidéos
+        if 'video_urls' not in data:
+            return jsonify({"error": "video_urls manquant dans le body"}), 400
         
-        # Vérifier qu'il y a au moins 2 vidéos pour un montage
-        if len(video_urls) < 2:
-            return jsonify({
-                "error": "Au moins 2 vidéos sont nécessaires pour un montage"
-            }), 400
+        video_urls = data['video_urls']
         
-        montage_sequence = []
+        # Liste pour stocker les chemins des vidéos téléchargées
+        downloaded_videos = []
         
-        # Préparer la séquence de montage
-        for idx, url in enumerate(video_urls):
-            video_info = {
-                "position": idx + 1,
-                "url": url,
-                "download_url": url,
-                "timestamp": time.time()
-            }
-            montage_sequence.append(video_info)
+        # Télécharger chaque vidéo
+        for i, url in enumerate(video_urls):
+            try:
+                # Télécharger la vidéo
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+                
+                # Sauvegarder temporairement
+                temp_filename = f"{UPLOAD_FOLDER}/video_{i}_{uuid.uuid4()}.mp4"
+                with open(temp_filename, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                
+                downloaded_videos.append(temp_filename)
+                print(f"Vidéo {i+1} téléchargée: {temp_filename}")
+                
+            except Exception as e:
+                print(f"Erreur lors du téléchargement de la vidéo {i+1}: {str(e)}")
+                # Nettoyer les vidéos déjà téléchargées
+                for video in downloaded_videos:
+                    if os.path.exists(video):
+                        os.remove(video)
+                return jsonify({"error": f"Erreur téléchargement vidéo {i+1}: {str(e)}"}), 500
         
-        # Préparer le payload pour n8n avec toutes les vidéos
-        n8n_montage_payload = {
-            "event": "montage_video_request",
-            "title": title,
-            "output_format": output_format,
-            "total_videos": len(montage_sequence),
-            "video_sequence": montage_sequence,
-            "timestamp": time.time(),
-            "instructions": "Additionner les vidéos dans l'ordre de position"
-        }
+        # Créer un fichier texte avec la liste des vidéos pour FFmpeg
+        list_filename = f"{UPLOAD_FOLDER}/list_{uuid.uuid4()}.txt"
+        with open(list_filename, 'w') as f:
+            for video in downloaded_videos:
+                f.write(f"file '{os.path.abspath(video)}'\n")
         
-        # Envoyer la requête de montage à n8n
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": API_KEY
-        }
+        # Nom du fichier de sortie
+        output_filename = f"{OUTPUT_FOLDER}/montage_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4()}.mp4"
         
-        try:
-            response = requests.post(
-                N8N_WEBHOOK_URL,
-                json=n8n_montage_payload,
-                headers=headers,
-                timeout=30
-            )
-            
-            montage_triggered = response.status_code == 200
-            
-            return jsonify({
-                "success": True,
-                "message": f"Montage de {len(montage_sequence)} vidéos déclenché",
-                "montage_triggered": montage_triggered,
-                "title": title,
-                "output_format": output_format,
-                "video_sequence": montage_sequence,
-                "n8n_response_status": response.status_code
-            })
-            
-        except requests.exceptions.RequestException as e:
-            return jsonify({
-                "error": f"Erreur lors de l'envoi à n8n: {str(e)}",
-                "video_sequence": montage_sequence
-            }), 500
+        # Commande FFmpeg pour assembler les vidéos
+        cmd = [
+            'ffmpeg',
+            '-f', 'concat',
+            '-safe', '0',
+            '-i', list_filename,
+            '-c', 'copy',  # Copie sans réencodage pour plus de rapidité
+            output_filename,
+            '-y'  # Écraser si le fichier existe
+        ]
+        
+        # Exécuter FFmpeg
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"Erreur FFmpeg: {result.stderr}")
+            # Nettoyer les fichiers temporaires
+            cleanup_temp_files(downloaded_videos, list_filename)
+            return jsonify({"error": "Erreur lors du montage vidéo", "details": result.stderr}), 500
+        
+        # Nettoyer les fichiers temporaires
+        cleanup_temp_files(downloaded_videos, list_filename)
+        
+        # Créer l'URL de la vidéo montée
+        # Remplacez YOUR_DOMAIN par votre domaine Hostinger
+        video_url = f"http://31.97.53.91:5000/download/{os.path.basename(output_filename)}"
+        
+        return jsonify({
+            "success": True,
+            "message": "Vidéo montée avec succès",
+            "montage_url": video_url,
+            "duration": len(video_urls) * 8,  # Si chaque vidéo fait 8 secondes
+            "videos_count": len(video_urls)
+        })
         
     except Exception as e:
+        print(f"Erreur générale: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/download/<filename>')
+def download_video(filename):
+    """Route pour télécharger la vidéo montée"""
+    file_path = os.path.join(OUTPUT_FOLDER, filename)
+    if os.path.exists(file_path):
+        return send_file(file_path, mimetype='video/mp4')
+    return jsonify({"error": "Fichier non trouvé"}), 404
+
+def cleanup_temp_files(video_files, list_file):
+    """Nettoyer les fichiers temporaires"""
+    for video in video_files:
+        if os.path.exists(video):
+            os.remove(video)
+    if os.path.exists(list_file):
+        os.remove(list_file)
+
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000, debug=True)
