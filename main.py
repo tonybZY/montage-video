@@ -8,11 +8,11 @@ from datetime import datetime
 
 app = Flask(__name__)
 
-# Dossier pour stocker les vidéos temporaires
-UPLOAD_FOLDER = 'temp_videos'
-OUTPUT_FOLDER = 'output_videos'
+# Dossiers créés par votre script install-ffmpeg.sh
+UPLOAD_FOLDER = '/tmp/videos'      # ← ICI, on utilise vos dossiers
+OUTPUT_FOLDER = '/tmp/montage'     # ← ICI aussi
 
-# Créer les dossiers s'ils n'existent pas
+# Créer les dossiers s'ils n'existent pas (au cas où)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
@@ -102,7 +102,6 @@ def montage_video():
         cleanup_temp_files(downloaded_videos, list_filename)
         
         # Créer l'URL de la vidéo montée
-        # Remplacez YOUR_DOMAIN par votre domaine Hostinger
         video_url = f"http://31.97.53.91:5000/download/{os.path.basename(output_filename)}"
         
         return jsonify({
