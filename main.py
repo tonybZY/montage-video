@@ -88,7 +88,7 @@ def montage_video():
                         os.remove(video)
                 return jsonify({"error": f"Erreur téléchargement vidéo {i+1}: {str(e)}"}), 500
         
-        # Vérifier les codecs de chaque vidéo pour savoir si on peut concat sans réencodage
+        # Vérifier les codecs de chaque vidéo
         print("\n--- Analyse des vidéos ---")
         video_infos = []
         for video in downloaded_videos:
