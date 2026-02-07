@@ -1,0 +1,62 @@
+# API Montage Vidéo v2.0
+
+API simple pour assembler plusieurs vidéos en une seule.
+
+## Déploiement Railway
+
+1. Push ce repo sur GitHub
+2. Connecte-le à Railway
+3. Ajoute la variable d'environnement `API_KEY` (optionnel, défaut: `pk_live_montage_2025`)
+4. Railway déploie automatiquement
+
+## Utilisation
+
+### POST /montage-video
+
+Assemble plusieurs vidéos en une seule.
+
+**Headers:**
+- `Content-Type: application/json`
+- `X-API-Key: pk_live_montage_2025`
+
+**Body JSON:**
+```json
+{
+  "video_urls": [
+    "https://exemple.com/video1.mp4",
+    "https://exemple.com/video2.mp4",
+    "https://exemple.com/video3.mp4"
+  ],
+  "return_file": false
+}
+```
+
+**Paramètres:**
+- `video_urls` (requis) : Liste d'URLs de vidéos à assembler dans l'ordre
+- `return_file` (optionnel, défaut: false) : Si `true`, renvoie le fichier MP4 directement. Si `false`, renvoie un JSON avec l'URL de téléchargement.
+
+**Réponse JSON (return_file: false):**
+```json
+{
+  "success": true,
+  "message": "Vidéo montée avec succès",
+  "download_url": "https://xxx.up.railway.app/download/montage_xxx.mp4",
+  "file_size": 12345678,
+  "videos_count": 3
+}
+```
+
+**Réponse binaire (return_file: true):**
+Le fichier MP4 directement.
+
+### GET /download/{filename}
+
+Télécharge une vidéo montée.
+
+## Utilisation dans n8n
+
+Dans un node HTTP Request :
+- **Method:** POST
+- **URL:** `https://votre-app.up.railway.app/montage-video`
+- **Headers:** `Content-Type: application/json` + `X-API-Key: pk_live_montage_2025`
+- **Body:** JSON avec `video_urls` et `return_file`
